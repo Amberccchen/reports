@@ -18,17 +18,39 @@ TOOLS = os.path.dirname(os.path.abspath(__file__))
 REF = re.compile(r'''(src|href)=(["'])(?!https?:|data:|#|mailto:|/)([^"']+)\2''')
 
 
+def data_uri(path):
+    mime = mimetypes.guess_type(path)[0] or "application/octet-stream"
+    return f"data:{mime};base64,{base64.b64encode(open(path, 'rb').read()).decode()}"
+
+
 def inline_refs(page, folder):
+    used = set()
+
     def sub(m):
         attr, q, rel = m.groups()
-        path = os.path.normpath(os.path.join(folder, rel.split("?")[0].split("#")[0]))
+        rel = rel.split("?")[0].split("#")[0]
+        path = os.path.normpath(os.path.join(folder, rel))
         if not path.startswith(os.path.normpath(folder) + os.sep) or not os.path.isfile(path):
             sys.exit(f"missing or outside-report file referenced: {rel} in {folder}")
-        mime = mimetypes.guess_type(path)[0] or "application/octet-stream"
-        data = base64.b64encode(open(path, "rb").read()).decode()
-        return f"{attr}={q}data:{mime};base64,{data}{q}"
-    page = REF.sub(sub, page)
-    return page.replace('loading="lazy"', "")
+        used.add(os.path.relpath(path, folder))
+        return f"{attr}={q}{data_uri(path)}{q}"
+    page = REF.sub(sub, page).replace('loading="lazy"', "")
+
+    # Images the page only reaches through script-built paths (e.g. `img/${id}.jpg`)
+    # go into a path -> data URI map, resolved by a src setter hook.
+    extra = {}
+    for root, _, names in os.walk(folder):
+        for n in names:
+            rel = os.path.relpath(os.path.join(root, n), folder).replace(os.sep, "/")
+            if rel != "index.html" and rel not in used and (mimetypes.guess_type(n)[0] or "").startswith("image/"):
+                extra[rel] = data_uri(os.path.join(root, n))
+    if extra:
+        hook = ("<script>(()=>{const A=" + json.dumps(extra) + ";"
+                "const d=Object.getOwnPropertyDescriptor(HTMLImageElement.prototype,'src');"
+                "Object.defineProperty(HTMLImageElement.prototype,'src',{get(){return d.get.call(this)},"
+                "set(v){d.set.call(this,A[String(v).replace(/^\\.\\//,'')]||v)},configurable:true});})()</script>")
+        page = re.sub(r"(<head[^>]*>)", lambda m: m.group(1) + hook, page, count=1) if "<head" in page else hook + page
+    return page
 
 
 def encrypt(plaintext, key_text):
