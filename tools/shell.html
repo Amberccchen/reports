@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>__TITLE__</title>
+<style>
+:root{--bg:#EFEDE8;--surface:#F8F7F4;--ink:#1D2125;--muted:#5D6166;--rule:#D3D0C9;--accent:#2D4C9C;--bad:#B23A32}
+@media (prefers-color-scheme:dark){:root{--bg:#16191C;--surface:#1E2226;--ink:#E7E5E0;--muted:#9EA3A8;--rule:#33383D;--accent:#8EA8EC;--bad:#EE8A80}}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:grid;place-items:center;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,sans-serif;padding:16px}
+form{background:var(--surface);border:1px solid var(--rule);border-radius:8px;padding:28px;width:100%;max-width:360px;display:flex;flex-direction:column;gap:12px}
+form[hidden]{display:none}
+h1{font:600 1.25rem Georgia,serif;margin:0}p{margin:0;color:var(--muted);font-size:.9rem}
+input{font:inherit;padding:9px 11px;border:1px solid var(--rule);border-radius:5px;background:var(--bg);color:var(--ink)}
+button{font:inherit;font-weight:600;padding:9px;border:0;border-radius:5px;background:var(--accent);color:#fff;cursor:pointer}
+button:disabled{opacity:.6}#err{color:var(--bad);min-height:1.2em;font-size:.88rem}
+</style></head><body>
+<form id="f" hidden><h1>__TITLE__</h1><p>This page is encrypted. Enter the key to read it.</p>
+<input id="k" type="password" autocomplete="current-password" placeholder="Key" required>
+<button id="b">Open</button><div id="err" role="alert"></div></form>
+<script>
+const P=__PAYLOAD__, SK="reports-key";
+const d=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
+async function dec(pw){
+  const base=await crypto.subtle.importKey("raw",new TextEncoder().encode(pw),"PBKDF2",false,["deriveKey"]);
+  const key=await crypto.subtle.deriveKey({name:"PBKDF2",salt:d(P.s),iterations:P.n,hash:"SHA-256"},base,{name:"AES-GCM",length:256},false,["decrypt"]);
+  return new TextDecoder().decode(await crypto.subtle.decrypt({name:"AES-GCM",iv:d(P.i)},key,d(P.c)));
+}
+function show(h){document.open();document.write(h);document.close();}
+function get(){try{return sessionStorage.getItem(SK)}catch(e){return null}}
+function put(v){try{sessionStorage.setItem(SK,v)}catch(e){}}
+const f=document.getElementById("f");
+(async()=>{
+  const saved=get();
+  if(saved){try{show(await dec(saved));return}catch(e){}}
+  f.hidden=false;document.getElementById("k").focus();
+})();
+f.addEventListener("submit",async e=>{
+  e.preventDefault();const b=document.getElementById("b"),err=document.getElementById("err"),pw=document.getElementById("k").value;
+  b.disabled=true;b.textContent="Decrypting…";err.textContent="";
+  try{const h=await dec(pw);put(pw);show(h);}
+  catch(x){err.textContent="Wrong key.";b.disabled=false;b.textContent="Open";}
+});
+</script></body></html>
